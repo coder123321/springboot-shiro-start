@@ -1,10 +1,16 @@
 package com.sh.config;
 
 
+import com.sh.config.cache.CustomCacheManager;
 import com.sh.filter.AesFilter;
 import com.sh.util.RedisDTO;
 import org.apache.shiro.authc.credential.CredentialsMatcher;
+import org.apache.shiro.authc.pam.AtLeastOneSuccessfulStrategy;
+import org.apache.shiro.authc.pam.ModularRealmAuthenticator;
+import org.apache.shiro.mgt.DefaultSessionStorageEvaluator;
+import org.apache.shiro.mgt.DefaultSubjectDAO;
 import org.apache.shiro.mgt.SecurityManager;
+import org.apache.shiro.realm.Realm;
 import org.apache.shiro.session.mgt.SessionManager;
 import org.apache.shiro.session.mgt.eis.JavaUuidSessionIdGenerator;
 import org.apache.shiro.spring.LifecycleBeanPostProcessor;
@@ -21,8 +27,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.core.RedisTemplate;
 
 import javax.servlet.Filter;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -30,7 +39,6 @@ import java.util.Map;
 public class ShiroConfig {
     @Autowired
     private RedisDTO dto;
-
 
     //密码验证器
     @Bean("credentialsMatcher")
@@ -46,11 +54,33 @@ public class ShiroConfig {
         myRealm.setCredentialsMatcher(credentialsMatcher);
         return myRealm;
     }
+    //权限验证器
+    @Bean("myRealm1")
+    public MyRealm1 myRealm1(@Qualifier("credentialsMatcher") CredentialsMatcher credentialsMatcher) {
+        MyRealm1 myRealm1 = new MyRealm1();
+        //给权限验证器配置上自定义的密码验证器
+        myRealm1.setCredentialsMatcher(credentialsMatcher);
+        return myRealm1;
+    }
+    //权限验证器
+    @Bean("myRealm2")
+    public MyRealm2 myRealm2(@Qualifier("credentialsMatcher") CredentialsMatcher credentialsMatcher) {
+        MyRealm2 myRealm2 = new MyRealm2();
+        //给权限验证器配置上自定义的密码验证器
+        myRealm2.setCredentialsMatcher(credentialsMatcher);
+        return myRealm2;
+    }
 
 //    @Bean
 //    public CacheManager cacheManager(){
 //        return new MemoryConstrainedCacheManager();
 //    }
+    /**
+     * 生成一个ShiroRedisCacheManager
+     **/
+    private CustomCacheManager cacheManager(RedisTemplate template) {
+        return new CustomCacheManager(template);
+    }
 
     /**
      * cookie对象;
@@ -89,27 +119,49 @@ public class ShiroConfig {
 //        return new CustomSessionManager();
 //    }
     //自定义sessionManager
+//    @Bean
+//    public SessionManager sessionManager() {
+//        CustomSessionManager mySessionManager = new CustomSessionManager();
+//        mySessionManager.setSessionDAO(redisSessionDAO());
+//        return mySessionManager;
+//    }
     @Bean
-    public SessionManager sessionManager() {
-        CustomSessionManager mySessionManager = new CustomSessionManager();
-        mySessionManager.setSessionDAO(redisSessionDAO());
-        return mySessionManager;
+    public ModularRealmAuthenticator modularRealmAuthenticator(){
+        ModularRealmAuthenticator modularRealmAuthenticator=new ModularRealmAuthenticator();
+        modularRealmAuthenticator.setAuthenticationStrategy(new AtLeastOneSuccessfulStrategy());
+        return modularRealmAuthenticator;
     }
 
     //桥梁，主要是Realm的管理认证配置
     @Bean("securityManager")
-    public SecurityManager securityManager(@Qualifier("myRealm") MyRealm myRealm) {
+    public SecurityManager securityManager(@Qualifier("myRealm") MyRealm myRealm,@Qualifier("myRealm1") MyRealm1 myRealm1,@Qualifier("myRealm2") MyRealm2 myRealm2,RedisTemplate<String, Object> redisTemplate) {
         DefaultWebSecurityManager defaultWebSecurityManager = new DefaultWebSecurityManager();
         //注入自定义myRealm
-        defaultWebSecurityManager.setRealm(myRealm);
+//        defaultWebSecurityManager.setRealm(myRealm);
+//        defaultWebSecurityManager.setRealm(myRealm1);
+//        defaultWebSecurityManager.setRealm(myRealm2);
+        ArrayList<Realm> lsit = new ArrayList<Realm>();
+        lsit.add(myRealm);
+        lsit.add(myRealm1);
+        lsit.add(myRealm2);
+//        Collection<Realm> realms = new Collection<Realm>();
+        defaultWebSecurityManager.setRealms(lsit);
         //注入自定义cacheManager
-        defaultWebSecurityManager.setCacheManager(cacheManager());
+//        defaultWebSecurityManager.setCacheManager(cacheManager());
         //注入记住我管理器
         defaultWebSecurityManager.setRememberMeManager(rememberMeManager());
         //注入自定义sessionManager
-        defaultWebSecurityManager.setSessionManager(sessionManager());
+//        defaultWebSecurityManager.setSessionManager(sessionManager());
 
+        // 关闭Shiro自带的session
+        DefaultSubjectDAO subjectDAO = new DefaultSubjectDAO();
+        DefaultSessionStorageEvaluator defaultSessionStorageEvaluator = new DefaultSessionStorageEvaluator();
+        defaultSessionStorageEvaluator.setSessionStorageEnabled(false);
+        subjectDAO.setSessionStorageEvaluator(defaultSessionStorageEvaluator);
+        defaultWebSecurityManager.setSubjectDAO(subjectDAO);
 
+        //注入自定义cacheManager
+        defaultWebSecurityManager.setCacheManager(cacheManager(redisTemplate));
         //自定义缓存实现，使用redis
 //        defaultWebSecurityManager.setSessionManager(SessionManager());
         return defaultWebSecurityManager;
@@ -213,15 +265,15 @@ public class ShiroConfig {
      *
      * @return
      */
-    public RedisManager redisManager() {
-        RedisManager redisManager = new RedisManager();
-        redisManager.setHost("127.0.0.1");
-        redisManager.setPort(6379);
-        redisManager.setExpire(60000);// 配置缓存过期时间
-        redisManager.setTimeout(20000);
-        redisManager.setPassword("123456");
-        return redisManager;
-    }
+//    public RedisManager redisManager() {
+//        RedisManager redisManager = new RedisManager();
+//        redisManager.setHost("127.0.0.1");
+//        redisManager.setPort(6379);
+//        redisManager.setExpire(60000);// 配置缓存过期时间
+//        redisManager.setTimeout(20000);
+//        redisManager.setPassword("123456");
+//        return redisManager;
+//    }
     /**
      * cacheManager 缓存 redis实现
      *
@@ -229,26 +281,26 @@ public class ShiroConfig {
      *
      * @return
      */
-    @Bean
-    public RedisCacheManager cacheManager() {
-        RedisCacheManager redisCacheManager = new RedisCacheManager();
-        redisCacheManager.setRedisManager(redisManager());
-        redisCacheManager.setKeyPrefix("cache_");
-        return redisCacheManager;
-    }
+//    @Bean
+//    public RedisCacheManager cacheManager() {
+//        RedisCacheManager redisCacheManager = new RedisCacheManager();
+//        redisCacheManager.setRedisManager(redisManager());
+//        redisCacheManager.setKeyPrefix("cache_");
+//        return redisCacheManager;
+//    }
 
     /**
      * RedisSessionDAO shiro sessionDao层的实现 通过redis
      *
      * 使用的是shiro-redis开源插件
      */
-    @Bean
-    public RedisSessionDAO redisSessionDAO() {
-        RedisSessionDAO redisSessionDAO = new RedisSessionDAO();
-        redisSessionDAO.setRedisManager(redisManager());
-        redisSessionDAO.setSessionIdGenerator(sessionIdGenerator());
-        return redisSessionDAO;
-    }
+//    @Bean
+//    public RedisSessionDAO redisSessionDAO() {
+//        RedisSessionDAO redisSessionDAO = new RedisSessionDAO();
+//        redisSessionDAO.setRedisManager(redisManager());
+//        redisSessionDAO.setSessionIdGenerator(sessionIdGenerator());
+//        return redisSessionDAO;
+//    }
 
     /**
      * Session ID 生成器

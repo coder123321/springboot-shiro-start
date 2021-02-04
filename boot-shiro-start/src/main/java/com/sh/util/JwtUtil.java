@@ -80,6 +80,23 @@ public class JwtUtil {
             return null;
         }
     }
+    /**
+     * 获得Token中的信息无需secret解密也能获得
+     *
+     * @param token
+     * @param claim
+     */
+    public static String getClaim(String token, String claim) {
+        try {
+            DecodedJWT jwt = JWT.decode(token);
+            // 只能输出String类型，如果是其他类型返回null
+            return jwt.getClaim(claim).asString();
+        } catch (JWTDecodeException e) {
+//                .error("解密Token中的公共信息出现JWTDecodeException异常:" + e.getMessage());
+            e.printStackTrace();
+        }
+        return null;
+    }
 
     /**
      * 生成token签名EXPIRE_TIME 分钟后过期
